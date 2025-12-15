@@ -6,7 +6,7 @@ import os
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 
-# ---------- 1. Δημιουργία dummy CSV (εσύ εδώ μετά θα βάλεις το planner_dataset σου) ----------
+# ---------- 1. Δημιουργία dummy CSV ----------
 
 def create_dummy_planner_csv(path: str, num_samples: int = 500, num_features: int = 16):
     rng = np.random.default_rng(0)
