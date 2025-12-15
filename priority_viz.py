@@ -47,7 +47,7 @@ if __name__ == "__main__":
     plt.legend()
     plt.tight_layout()
     plt.savefig("viz_entropy.png", dpi=200)
-    plt.show()  # 🔥 <-- Προβολή
+    plt.show()  #  <-- Προβολή
 
     # ===================================================
     # 2. UNCERTAINTY MAP
