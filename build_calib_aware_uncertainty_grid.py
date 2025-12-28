@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import torch
+from neural_uncertainty.calibration_methods import AffineCalibrator
 
 from train_drift_uncertainty_net import (
     CSV_PATH,
