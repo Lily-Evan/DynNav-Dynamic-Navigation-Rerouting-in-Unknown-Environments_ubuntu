@@ -292,33 +292,7 @@ Example research directions:
 
 ---
 
-## 🔮 Possible Next Steps
 
-The codebase is designed to be extended towards:
-
-- **ROS / ROS2 integration** with real robots  
-- Real-world navigation experiments with **online trust adaptation**  
-- **Bayesian** or **reinforcement learning** approaches to learn trust dynamics  
-- A GUI / web UI for real-time human preference input  
-- Full, **paper-ready experimental pipelines** with reproducible scripts
-
----
-
-## 📜 Citation (Placeholder)
-
-If you use this repository in academic work, please consider citing it.  
-(Replace the following with your actual citation.)
-
-```text
-@inproceedings{yourkey202Xtrustnav,
-  title     = {Human--Robot Trust Dynamics and Preference-Aware Risk Navigation},
-  author    = {Your Name and Collaborators},
-  booktitle = {Proceedings of ...},
-  year      = {202X}
-}
-```
-
----
 
 ## 📄 License
 
@@ -328,12 +302,7 @@ Specify your license here, e.g.:
 - BSD-3-Clause
 - Apache-2.0
 
-```text
-Copyright (c) <Year>, <Your Name>
 
-Licensed under the <Your License> License.
-See the LICENSE file for details.
-```
 
 ---
 
