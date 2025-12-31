@@ -105,9 +105,10 @@ Enabled when:
 
 ```bash
 python3 run_trust_dynamics_demo.py
+----
 
 
-# Human–Robot Trust Dynamics + Human Preference–Aware Risk Navigation
+## Human–Robot Trust Dynamics + Human Preference–Aware Risk Navigation
 
 This module extends the dynamic navigation system by coupling:
 
