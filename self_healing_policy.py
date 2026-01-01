@@ -1,134 +1,184 @@
-from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, Any, List
+"""
+Self-Healing Navigation Policy
+--------------------------------
+Reference implementation for self-healing autonomy in navigation.
+
+The policy monitors normalized reliability metrics in [0, 1]:
+
+  - drift            : localization drift / VO confidence
+  - calibration_error: miscalibration of uncertainty
+  - heuristic_regret : deviation vs optimal cost
+  - failure_rate     : recent failure / near-miss probability
+
+If metrics exceed configurable thresholds, the policy proposes
+self-healing actions, adjusts a risk weight lambda, and can activate
+a Safe Mode.
+"""
+
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
 
 
 @dataclass
 class SelfHealingConfig:
-    """
-    Configuration thresholds for self-healing navigation.
-
-    All metrics are assumed normalized or in comparable units:
-
-      - drift:              0 (no drift) .. 1 (very high drift)
-      - calib_error:        0 (well calibrated) .. 1 (badly calibrated)
-      - regret:             0 (perfect heuristic) .. 1 (high regret)
-      - failure_rate:       0 .. 1 over a recent window
-    """
+    # Thresholds in [0, 1]
     drift_threshold: float = 0.6
-    calib_error_threshold: float = 0.5
-    regret_threshold: float = 0.5
-    failure_rate_threshold: float = 0.3
+    calibration_threshold: float = 0.6
+    regret_threshold: float = 0.6
+    failure_threshold: float = 0.4
 
-    min_steps_between_actions: int = 10
+    # Safe mode conditions
+    safe_mode_failure_threshold: float = 0.6
+    safe_mode_regret_threshold: float = 0.7
 
-    enable_drift_trigger: bool = True
-    enable_calib_trigger: bool = True
-    enable_regret_trigger: bool = True
-    enable_failure_trigger: bool = True
+    # Lambda (risk-weight) bounds
+    min_lambda: float = 0.5
+    max_lambda: float = 3.0
+    lambda_step: float = 0.25
+
+    # Cooldown in steps between triggers
+    cooldown_steps: int = 2
+
+
+@dataclass
+class SelfHealingDecision:
+    trigger: bool
+    reasons: List[str] = field(default_factory=list)
+    recommended_actions: List[str] = field(default_factory=list)
+    new_lambda: float = 1.0
+    safe_mode: bool = False
+
+    def to_dict(self) -> Dict:
+        return {
+            "SELF_HEALING_TRIGGER": self.trigger,
+            "reasons": self.reasons,
+            "recommended_actions": self.recommended_actions,
+            "new_lambda": self.new_lambda,
+            "safe_mode": self.safe_mode,
+        }
 
 
 class SelfHealingPolicy:
     """
-    Self-healing controller for navigation.
+    Closed-loop autonomy maintenance policy.
 
-    Given current metrics (drift, calibration error, heuristic regret, failure rate),
-    it suggests when the system should "repair itself", e.g.:
+    Usage:
 
-      - re-calibrate uncertainty estimator
-      - re-train learned heuristic (small online batch)
-      - increase risk aversion (lambda)
-      - temporarily force safe mode
+        policy = SelfHealingPolicy()
+        decision = policy.evaluate(
+            step=7,
+            metrics={
+                "drift": 0.7,
+                "calibration_error": 0.3,
+                "heuristic_regret": 0.8,
+                "failure_rate": 0.5,
+            },
+        )
     """
 
     def __init__(self, config: Optional[SelfHealingConfig] = None):
-        if config is None:
-            config = SelfHealingConfig()
-        self.config = config
-        self._last_action_step: Optional[int] = None
+        self.config = config or SelfHealingConfig()
+        self._last_trigger_step: Optional[int] = None
+        self._lambda: float = 1.0  # planning risk-weight
 
-    def reset(self):
-        self._last_action_step = None
+    @property
+    def current_lambda(self) -> float:
+        return self._lambda
 
-    def _cooldown_ok(self, step: int) -> bool:
-        if self._last_action_step is None:
-            return True
-        return (step - self._last_action_step) >= self.config.min_steps_between_actions
+    def _cooldown_active(self, step: int) -> bool:
+        if self._last_trigger_step is None:
+            return False
+        return (step - self._last_trigger_step) < self.config.cooldown_steps
 
-    def should_self_heal(
-        self,
-        step: int,
-        drift: float,
-        calib_error: float,
-        regret: float,
-        failure_rate: float,
-    ) -> Tuple[bool, Dict[str, Any]]:
+    def _maybe_increase_lambda(self) -> None:
+        """Move λ towards conservative, safety-oriented planning."""
+        self._lambda = min(self._lambda + self.config.lambda_step, self.config.max_lambda)
+
+    def _maybe_decrease_lambda(self) -> None:
+        """Optional: relax λ if everything is healthy."""
+        self._lambda = max(self._lambda - self.config.lambda_step, self.config.min_lambda)
+
+    def evaluate(self, step: int, metrics: Dict[str, float]) -> SelfHealingDecision:
         """
-        Decide whether to trigger self-healing behavior.
+        Evaluate reliability metrics and decide whether to trigger self-healing.
 
         Parameters
         ----------
         step : int
-            Current time step.
-        drift : float
-            Normalized drift metric.
-        calib_error : float
-            Normalized calibration error metric.
-        regret : float
-            Normalized heuristic regret (e.g. extra cost vs optimal).
-        failure_rate : float
-            Recent failure / near-miss rate over a sliding window.
+            Current planning step or time index.
+        metrics : dict
+            Normalized metrics in [0, 1] with keys:
+              'drift', 'calibration_error', 'heuristic_regret', 'failure_rate'
 
         Returns
         -------
-        trigger : bool
-            Whether to recommend self-healing actions.
-        info : dict
-            Contains 'reasons' and 'recommended_actions'.
+        SelfHealingDecision
         """
-        if not self._cooldown_ok(step):
-            return False, {"reasons": [], "recommended_actions": []}
+        drift = float(metrics.get("drift", 0.0))
+        calib = float(metrics.get("calibration_error", 0.0))
+        regret = float(metrics.get("heuristic_regret", 0.0))
+        failure = float(metrics.get("failure_rate", 0.0))
 
         reasons: List[str] = []
         actions: List[str] = []
 
-        # Drift too high → consider changing estimator / fusion parameters
-        if self.config.enable_drift_trigger and drift >= self.config.drift_threshold:
+        # Drift
+        if drift >= self.config.drift_threshold:
+            reasons.append(f"drift {drift:.2f} ≥ threshold {self.config.drift_threshold:.2f}")
+            actions.append("adjust_state_estimator")
+
+        # Calibration error
+        if calib >= self.config.calibration_threshold:
             reasons.append(
-                f"drift {drift:.2f} ≥ threshold {self.config.drift_threshold:.2f}"
+                "calibration_error "
+                f"{calib:.2f} ≥ threshold {self.config.calibration_threshold:.2f}"
             )
-            actions.append("adjust_state_estimator")  # e.g. re-tune UKF / VO fusion
-            actions.append("increase_risk_weight")    # more conservative paths
+            actions.append("recalibrate_uncertainty_models")
 
-        # Calibration error high → rebuild / recalibrate uncertainty grids
-        if self.config.enable_calib_trigger and calib_error >= self.config.calib_error_threshold:
+        # Heuristic regret
+        if regret >= self.config.regret_threshold:
             reasons.append(
-                f"calibration_error {calib_error:.2f} ≥ threshold {self.config.calib_error_threshold:.2f}"
+                "heuristic_regret "
+                f"{regret:.2f} ≥ threshold {self.config.regret_threshold:.2f}"
             )
-            actions.append("recalibrate_uncertainty_model")  # re-run calibration scripts
+            actions.append("retrain_heuristic_small_batch")
 
-        # Heuristic regret high → on-the-fly small-batch re-training
-        if self.config.enable_regret_trigger and regret >= self.config.regret_threshold:
+        # Failure rate
+        if failure >= self.config.failure_threshold:
             reasons.append(
-                f"regret {regret:.2f} ≥ threshold {self.config.regret_threshold:.2f}"
+                "failure_rate "
+                f"{failure:.2f} ≥ threshold {self.config.failure_threshold:.2f}"
             )
-            actions.append("retrain_learned_heuristic_small_batch")
+            actions.append("review_recent_failures")
 
-        # Failure / near-miss rate high → safe mode + strong risk aversion
-        if self.config.enable_failure_trigger and failure_rate >= self.config.failure_rate_threshold:
-            reasons.append(
-                f"failure_rate {failure_rate:.2f} ≥ threshold {self.config.failure_rate_threshold:.2f}"
-            )
-            actions.append("enter_safe_mode")
-            if "increase_risk_weight" not in actions:
-                actions.append("increase_risk_weight")
+        # Safe mode?
+        safe_mode = (
+            failure >= self.config.safe_mode_failure_threshold
+            or regret >= self.config.safe_mode_regret_threshold
+        )
+        if safe_mode:
+            actions.append("activate_safe_mode")
+            actions.append("increase_monitoring_frequency")
 
-        if not reasons:
-            return False, {"reasons": [], "recommended_actions": []}
+        trigger = len(reasons) > 0 and not self._cooldown_active(step)
 
-        actions = sorted(set(actions))
-        self._last_action_step = step
+        if trigger:
+            self._last_trigger_step = step
+            self._maybe_increase_lambda()
+        else:
+            # If everything is very healthy, we can relax λ slightly
+            if max(drift, calib, regret, failure) < 0.2:
+                self._maybe_decrease_lambda()
 
-        return True, {
-            "reasons": reasons,
-            "recommended_actions": actions,
-        }
+        # Always suggest increased risk weight when issues exist
+        if len(reasons) > 0 and "increase_risk_weight" not in actions:
+            actions.append("increase_risk_weight")
+
+        decision = SelfHealingDecision(
+            trigger=trigger,
+            reasons=reasons,
+            recommended_actions=actions,
+            new_lambda=self._lambda,
+            safe_mode=safe_mode,
+        )
+        return decision

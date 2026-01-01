@@ -1,201 +1,210 @@
+"""
+Language-Driven Safety Policy
+-----------------------------
+Maps natural language messages (English + Greek) into
+risk and uncertainty scaling factors for navigation.
+
+Implementation:
+  - rule-based keyword extraction (EN + EL)
+  - multiplicative scaling of risk / uncertainty
+  - conservative bounding
+  - human-readable explanations
+"""
+
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import Dict, List
 
 
 @dataclass
 class LanguageSafetyConfig:
-    """
-    How verbal descriptions modulate risk / uncertainty.
-
-    Multipliers are applied on top of base risk / uncertainty.
-    """
-    crowding_risk_scale: float = 1.8
-    slippery_risk_scale: float = 2.0
-    stairs_risk_scale: float = 1.5
-    children_risk_scale: float = 1.7
-    elderly_risk_scale: float = 1.7
-
-    unseen_hazard_uncertainty_scale: float = 1.5
-
+    base_risk: float = 1.0
+    base_uncertainty: float = 1.0
     max_risk_scale: float = 3.0
-    max_uncertainty_scale: float = 3.0
+    max_uncertainty_scale: float = 2.5
 
 
 @dataclass
-class LanguageSafetyFactors:
-    crowding: bool = False
-    slippery: bool = False
-    stairs: bool = False
-    children: bool = False
-    elderly: bool = False
-    unseen_hazard: bool = False
+class LanguageSafetyDecision:
+    risk_scale: float
+    uncertainty_scale: float
+    factors: List[str]
+    explanation: str
+
+    def to_dict(self) -> Dict:
+        return {
+            "risk_scale": self.risk_scale,
+            "uncertainty_scale": self.uncertainty_scale,
+            "factors": self.factors,
+            "explanation": self.explanation,
+        }
 
 
 class LanguageSafetyPolicy:
     """
-    Parse natural language hints (EN/GR) and modulate risk/uncertainty.
-
-    Example inputs:
-      - "έχει πολύ κόσμο εκεί"
-      - "the corridor is slippery"
-      - "there are stairs ahead"
-      - "many children and elderly people here"
+    Bilingual (EN + Greek) rule-based language safety policy.
     """
 
     def __init__(self, config: LanguageSafetyConfig | None = None):
-        if config is None:
-            config = LanguageSafetyConfig()
-        self.config = config
+        self.config = config or LanguageSafetyConfig()
+        self._build_keyword_map()
 
-    def parse_text(self, text: str) -> LanguageSafetyFactors:
-        text_l = text.lower()
-
-        f = LanguageSafetyFactors()
-
-        # Crowding / many people
-        if any(
-            kw in text_l
-            for kw in [
-                "πολύ κόσμο",
-                "πολυκοσμία",
-                "έχει κόσμο",
-                "crowded",
-                "many people",
-                "a lot of people",
-            ]
-        ):
-            f.crowding = True
-
-        # Slippery / wet floor
-        if any(
-            kw in text_l
-            for kw in [
-                "γλιστερ",
-                "γλιστρά",
-                "wet floor",
-                "slippery",
-                "slippery floor",
-            ]
-        ):
-            f.slippery = True
-
-        # Stairs
-        if any(
-            kw in text_l
-            for kw in [
-                "σκαλές",
-                "σκάλες",
-                "stairs",
-                "staircase",
-            ]
-        ):
-            f.stairs = True
-
-        # Children
-        if any(
-            kw in text_l
-            for kw in [
-                "παιδιά",
-                "μωρά",
-                "children",
-                "kids",
-            ]
-        ):
-            f.children = True
-
-        # Elderly
-        if any(
-            kw in text_l
-            for kw in [
-                "ηλικιωμένοι",
-                "γηραιοί",
-                "elderly",
-                "old people",
-            ]
-        ):
-            f.elderly = True
-
-        # Unseen hazard / warnings
-        if any(
-            kw in text_l
-            for kw in [
-                "πρόσεχε",
-                "προσοχή",
-                "δεν το βλέπεις",
-                "you can't see it",
-                "hidden",
-                "around the corner",
-            ]
-        ):
-            f.unseen_hazard = True
-
-        return f
-
-    def modulate_risk_and_uncertainty(
-        self,
-        base_risk: float,
-        base_uncertainty: float,
-        text: str,
-    ) -> Dict[str, Any]:
+    def _build_keyword_map(self) -> None:
         """
-        Apply language-driven modulation to risk and uncertainty.
+        Build internal keyword rules.
 
-        Returns a dict with:
-          - risk
-          - uncertainty
-          - factors
-          - explanation
+        Each rule:
+            (keywords, risk_multiplier, uncertainty_multiplier, description)
         """
-        factors = self.parse_text(text)
+        self._rules: List[tuple[list[str], float, float, str]] = [
+            # Crowding / many people
+            (
+                [
+                    "crowd",
+                    "crowded",
+                    "many people",
+                    "a lot of people",
+                    "πολύς κόσμος",
+                    "πολυς κοσμος",
+                    "κόσμος",
+                    "κοσμος",
+                ],
+                1.6,
+                1.1,
+                "crowding / many people",
+            ),
+            # Slippery floor
+            (
+                [
+                    "slippery",
+                    "wet floor",
+                    "γλιστερός",
+                    "γλιστερος",
+                    "γλιστράει",
+                    "γλιστραει",
+                    "βρεγμένο πάτωμα",
+                    "βρεγμενο πατωμα",
+                ],
+                1.8,
+                1.5,
+                "slippery / wet floor",
+            ),
+            # Stairs / elevation
+            (
+                [
+                    "stairs",
+                    "steps",
+                    "elevation",
+                    "σκαλιά",
+                    "σκαλια",
+                    "σκάλες",
+                    "σκαλες",
+                ],
+                1.5,
+                1.1,
+                "stairs / elevation changes",
+            ),
+            # Children present
+            (
+                [
+                    "children",
+                    "kids",
+                    "παιδιά",
+                    "παιδια",
+                ],
+                1.5,
+                1.1,
+                "children present",
+            ),
+            # Elderly present
+            (
+                [
+                    "elderly",
+                    "old people",
+                    "ηλικιωμένοι",
+                    "ηλικιωμενοι",
+                ],
+                1.7,
+                1.1,
+                "elderly people present",
+            ),
+            # Unseen / hidden hazard
+            (
+                [
+                    "hidden",
+                    "unseen",
+                    "around the corner",
+                    "you can't see",
+                    "you cant see",
+                    "δεν φαίνεται",
+                    "δεν φαινεται",
+                    "γωνία",
+                    "γωνια",
+                ],
+                1.4,
+                1.4,
+                "unseen / hidden hazard",
+            ),
+        ]
 
-        risk_scale = 1.0
-        unc_scale = 1.0
-        explanations: List[str] = []
+        # Explicit neutral markers
+        self._neutral_markers: List[str] = [
+            "nothing special",
+            "normal",
+            "safe",
+            "ισορροπημένος διάδρομος",
+            "ισορροπημενος διαδρομος",
+        ]
 
-        if factors.crowding:
-            risk_scale *= self.config.crowding_risk_scale
-            explanations.append("crowding / many people")
+    def evaluate(self, message: str) -> LanguageSafetyDecision:
+        """
+        Analyze a natural language message and compute multiplicative
+        scaling factors for risk and uncertainty.
 
-        if factors.slippery:
-            risk_scale *= self.config.slippery_risk_scale
-            explanations.append("slippery / wet floor")
+        Parameters
+        ----------
+        message : str
+            User message in English or Greek.
 
-        if factors.stairs:
-            risk_scale *= self.config.stairs_risk_scale
-            explanations.append("stairs / elevation changes")
+        Returns
+        -------
+        LanguageSafetyDecision
+        """
+        text = (message or "").lower().strip()
 
-        if factors.children:
-            risk_scale *= self.config.children_risk_scale
-            explanations.append("children present")
+        # Neutral checks
+        if any(marker in text for marker in self._neutral_markers):
+            return LanguageSafetyDecision(
+                risk_scale=self.config.base_risk,
+                uncertainty_scale=self.config.base_uncertainty,
+                factors=[],
+                explanation="No language-driven adjustment (neutral message).",
+            )
 
-        if factors.elderly:
-            risk_scale *= self.config.elderly_risk_scale
-            explanations.append("elderly people present")
+        risk = self.config.base_risk
+        uncert = self.config.base_uncertainty
+        activated_factors: List[str] = []
 
-        if factors.unseen_hazard:
-            unc_scale *= self.config.unseen_hazard_uncertainty_scale
-            explanations.append("unseen / warned hazard")
+        for keywords, r_mult, u_mult, desc in self._rules:
+            if any(k.lower() in text for k in keywords):
+                activated_factors.append(desc)
+                risk *= r_mult
+                uncert *= u_mult
 
-        # Clamp scales to avoid insane explosions
-        risk_scale = min(risk_scale, self.config.max_risk_scale)
-        unc_scale = min(unc_scale, self.config.max_uncertainty_scale)
+        # Conservative caps
+        risk = min(risk, self.config.max_risk_scale)
+        uncert = min(uncert, self.config.max_uncertainty_scale)
 
-        new_risk = base_risk * risk_scale
-        new_unc = base_uncertainty * unc_scale
+        if not activated_factors:
+            explanation = (
+                "No safety-related keywords detected; leaving risk and uncertainty unchanged."
+            )
+        else:
+            bullet_list = "\n  - " + "\n  - ".join(activated_factors)
+            explanation = "Language-driven factors:" + bullet_list
 
-        explanation_text = (
-            "No language-driven adjustments."
-            if not explanations
-            else "Language-driven factors: " + ", ".join(explanations)
+        return LanguageSafetyDecision(
+            risk_scale=risk,
+            uncertainty_scale=uncert,
+            factors=activated_factors,
+            explanation=explanation,
         )
-
-        return {
-            "base_risk": base_risk,
-            "base_uncertainty": base_uncertainty,
-            "risk": new_risk,
-            "uncertainty": new_unc,
-            "risk_scale": risk_scale,
-            "uncertainty_scale": unc_scale,
-            "factors": factors,
-            "explanation": explanation_text,
-        }
