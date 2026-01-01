@@ -3,11 +3,14 @@ from navigation_controller import NavigationController, RobotMetrics
 
 from abstract_planner import AbstractPlanner
 from navigation_controller import NavigationController, RobotMetrics
-
+from results_logger import ResultsLogger
 
 def main():
     planner = AbstractPlanner()
     controller = NavigationController(planner)
+    logger = ResultsLogger()
+    step = 0
+
 
     scenario = [
         (RobotMetrics(0.1, 0.1, 0.1, 0.0), "Balanced corridor, nothing special here."),
@@ -21,6 +24,9 @@ def main():
         print("Message:", msg)
 
         result = controller.update(metrics, msg)
+        step += 1
+        logger.log(step, metrics, result)
+
 
         print("\nSelf-Healing Decision:", result["self_healing"])
         print("\nLanguage Safety:", result["language_safety"])
