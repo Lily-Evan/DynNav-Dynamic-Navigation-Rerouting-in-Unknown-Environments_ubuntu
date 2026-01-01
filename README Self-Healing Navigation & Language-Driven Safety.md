@@ -223,4 +223,4 @@ Typical integration loop:
 
 ## 7. License
 
-Add your preferred license here (e.g., MIT, BSD-3-Clause, Apache-2.0).
+
