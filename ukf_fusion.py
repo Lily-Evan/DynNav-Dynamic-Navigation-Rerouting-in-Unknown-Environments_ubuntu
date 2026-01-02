@@ -1,79 +1,100 @@
 import numpy as np
+from security_monitor import InnovationMonitor, MonitorConfig
+
 
 class UKF:
     def __init__(self):
-        # State: x, y, yaw
-        self.x = np.zeros(3)
-        self.P = np.eye(3) * 0.1
+        # State: [x, y, yaw]
+        self.x = np.zeros(3, dtype=float)
+        self.P = np.eye(3, dtype=float) * 0.1
 
-        # Process noise
-        self.Q = np.diag([0.05, 0.05, 0.01])
-
-        # Measurement noise
+        # Measurement noise (nominal)
         self.R_vo = np.diag([0.05, 0.05, 0.02])
         self.R_imu = np.array([[0.01]])
 
-        # UKF parameters
-        self.alpha = 1e-3
-        self.beta = 2
-        self.kappa = 0
+        self.R_vo_nominal = self.R_vo.copy()
+        self.R_imu_nominal = self.R_imu.copy()
 
-    def sigma_points(self, x, P):
-        n = len(x)
-        lambda_ = self.alpha**2 * (n + self.kappa) - n
-        U = np.linalg.cholesky((n + lambda_) * P)
+        # Minimal process noise
+        self.Q = np.eye(3, dtype=float) * 1e-3
 
-        sigma = [x]
-        for i in range(n):
-            sigma.append(x + U[i])
-            sigma.append(x - U[i])
 
-        return np.array(sigma), lambda_
+        cfg_vo = MonitorConfig(alpha=0.01, window=200, warmup=20, mode="kofn", k=3, n=10)
+        cfg_imu = MonitorConfig(alpha=0.01, window=200, warmup=20, mode="consecutive", consecutive=3)
 
-    def motion_model(self, x, u, dt):
-        vx, vy, yaw_rate = u
-        x_new = np.zeros(3)
-        x_new[0] = x[0] + vx * dt
-        x_new[1] = x[1] + vy * dt
-        x_new[2] = x[2] + yaw_rate * dt
-        return x_new
+        self.mon_vo = InnovationMonitor(cfg_vo)
+        self.mon_imu = InnovationMonitor(cfg_imu)
+
+
+        # Security state
+        self.security_alert = False
+        self.last_vo_ids = None
+        self.last_imu_ids = None
+
+        # Adaptive scales (for logging/plots)
+        self.vo_scale_last = 1.0
+        self.imu_scale_last = 1.0
 
     def predict(self, u, dt):
-        sigma, lambda_ = self.sigma_points(self.x, self.P)
-        n = len(self.x)
-        w0 = lambda_ / (n + lambda_)
-        wi = 1 / (2 * (n + lambda_))
+        """
+        Minimal predict model:
+          u = [vx, vy, yaw_rate] in world frame
+        """
+        u = np.asarray(u, dtype=float).reshape(-1)
+        if u.shape[0] != 3:
+            raise ValueError("u must be [vx, vy, yaw_rate]")
 
-        sigma_pred = np.array([self.motion_model(sp, u, dt) for sp in sigma])
+        vx, vy, yaw_rate = float(u[0]), float(u[1]), float(u[2])
 
-        # Weighted mean
-        x_pred = w0 * sigma_pred[0]
-        for s in sigma_pred[1:]:
-            x_pred += wi * s
+        self.x[0] += vx * dt
+        self.x[1] += vy * dt
+        self.x[2] += yaw_rate * dt
 
-        # Weighted covariance
-        P_pred = self.Q.copy()
-        for i, sp in enumerate(sigma_pred):
-            diff = (sp - x_pred).reshape(-1, 1)
-            w = w0 if i == 0 else wi
-            P_pred += w * (diff @ diff.T)
+        self.P = self.P + self.Q * dt
 
-        self.x = x_pred
-        self.P = P_pred
+    def _adaptive_scale(self, d2: float, thr: float, k: float = 4.0, scale_max: float = 50.0) -> float:
+        ratio = float(d2) / max(1e-9, float(thr))
+        if ratio <= 1.0:
+            return 1.0
+        return float(min(scale_max, 1.0 + k * (ratio - 1.0)))
 
     def update_vo(self, z):
-        # Measurement: direct observation of x,y,yaw
+        z = np.asarray(z, dtype=float).reshape(3)
         H = np.eye(3)
         S = H @ self.P @ H.T + self.R_vo
         K = self.P @ H.T @ np.linalg.inv(S)
         y = z - H @ self.x
+
+        # IDS: innovation gating
+        info = self.mon_vo.update(y, S, meta={"sensor": "vo"})
+        self.last_vo_ids = info
+
+        # Adaptive trust weighting
+        self.vo_scale_last = self._adaptive_scale(info["d2"], info["thr"], k=4.0, scale_max=50.0)
+        self.R_vo = self.R_vo_nominal * self.vo_scale_last
+
+        # Trigger => sticky alert (fail-safe latch)
+        if info["triggered"]:
+            self.security_alert = True
+
         self.x = self.x + K @ y
         self.P = (np.eye(3) - K @ H) @ self.P
 
     def update_imu(self, yaw_meas):
-        H = np.array([[0, 0, 1]])
+        yaw_meas = float(yaw_meas)
+        H = np.array([[0.0, 0.0, 1.0]])
         S = H @ self.P @ H.T + self.R_imu
         K = self.P @ H.T @ np.linalg.inv(S)
-        y = yaw_meas - H @ self.x
-        self.x = self.x + K @ y
+        y = yaw_meas - float(H @ self.x)
+
+        info = self.mon_imu.update(np.array([y], dtype=float), S, meta={"sensor": "imu"})
+        self.last_imu_ids = info
+
+        self.imu_scale_last = self._adaptive_scale(info["d2"], info["thr"], k=4.0, scale_max=50.0)
+        self.R_imu = self.R_imu_nominal * self.imu_scale_last
+
+        if info["triggered"]:
+            self.security_alert = True
+
+        self.x = self.x + (K.flatten() * y)
         self.P = (np.eye(3) - K @ H) @ self.P

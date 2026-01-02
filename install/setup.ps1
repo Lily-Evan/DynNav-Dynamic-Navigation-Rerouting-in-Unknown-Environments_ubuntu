@@ -29,6 +29,7 @@ _colcon_prefix_chain_powershell_source_script "/home/panagiotagrosd/ros2_ws/inst
 _colcon_prefix_chain_powershell_source_script "/home/panagiotagrosd/arm_ws/install\local_setup.ps1"
 _colcon_prefix_chain_powershell_source_script "/home/panagiotagrosd/lidar_imu_slam_ws/install\local_setup.ps1"
 _colcon_prefix_chain_powershell_source_script "/home/panagiotagrosd/ros2_lidar_slam_ws/install\local_setup.ps1"
+_colcon_prefix_chain_powershell_source_script "/home/panagiotagrosd/slam_ws/install\local_setup.ps1"
 
 # source this prefix
 $env:COLCON_CURRENT_PREFIX=(Split-Path $PSCommandPath -Parent)
