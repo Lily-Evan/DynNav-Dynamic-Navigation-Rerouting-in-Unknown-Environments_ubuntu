@@ -1,7 +1,7 @@
 # Innovation-Based Intrusion Detection for UKF Sensor Fusion
 
 ## Abstract
-This project presents an **innovation-based intrusion detection mechanism** embedded directly into a Unscented Kalman Filter (UKF) used for robot state estimation.
+This presents an **innovation-based intrusion detection mechanism** embedded directly into a Unscented Kalman Filter (UKF) used for robot state estimation.
 The core idea is to treat **state estimation consistency** not only as a filtering property, but also as a **security signal**.
 
 Without modifying code execution or system logic, an attacker can still compromise navigation by **manipulating sensor measurements** (e.g., spoofing or replaying data).
@@ -141,5 +141,4 @@ Generated plots:
 
 ---
 
-## Research Use
-This repository is intended for **academic and research use**, including thesis work and experimental robotics security studies.
+
