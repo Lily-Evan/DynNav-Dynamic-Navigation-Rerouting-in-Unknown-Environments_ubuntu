@@ -298,9 +298,8 @@ Example research directions:
 
 Specify your license here, e.g.:
 
-- MIT
+
 - BSD-3-Clause
-- Apache-2.0
 
 
 
