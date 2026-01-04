@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this repository or its results in academic work, please cite it as follows."
+title: "Dynamic Navigation and Uncertainty-Aware Replanning in Unknown Environments"
+authors:
+  - family-names: Grosdouli
+    given-names: Panagiota
+version: 1.0.0
+date-released: 2026-01-01
+repository-code: "https://github.com/PanagiotaGr/DynNav-Dynamic-Navigation-Rerouting-in-Unknown-Environments_ubuntu"
+license: CC-BY-NC-SA-4.0
+keywords:
+  - autonomous navigation
+  - motion planning
+  - uncertainty-aware planning
+  - risk-sensitive navigation
+  - visual odometry
+  - SLAM
+  - learned heuristics
+  - A*
+  - next-best-view
+  - belief-risk planning
+  - self-trust
+  - OOD detection
+  - robotics
+  - ROS 2
+abstract: >
+  Research-oriented framework for autonomous robotic navigation in unknown
+  environments under sensing and localization uncertainty. The system integrates
+  uncertainty-aware planning, learned A* heuristics, belief–risk trade-offs,
+  self-trust and out-of-distribution aware behavior, with extensive benchmarking
+  and statistical validation.
