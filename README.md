@@ -69,6 +69,23 @@ Adaptive risk weighting and safe-mode activation under difficult conditions.
 ### 6) Attack-Aware Monitoring (Innovation-Based IDS for UKF)
 Innovation-based IDS for detecting integrity issues in state estimation.
 
+
+## Additional Contributions (Repository Scope)
+Beyond the core contributions above, this repository also includes:
+- self-healing navigation behaviors and language-driven safety modules,
+- multi-robot safe-mode navigation under uncertainty,
+- human preference–aware risk navigation policies,
+- benchmark suites (frontier-restricted NBV, returnability/irreversibility maps, multi-scenario evaluations),
+- extensive logs, plots, and statistical validation artifacts.
+
+See:
+- `README-large info.md` (full overview)
+- `READMEResults: Self-Healing + Language Safety + Trust + Ethical Navigation.md`
+- `README Self-Healing Navigation & Language-Driven Safety.md`
+- `Multi-Robot Safe Mode Navigation under Uncertainty.md`
+- `Human Preference–Aware Risk Navigation.md`
+- `README_Innovation-Based_IDS_for_UKF_Sensor_Fusion.md`
+
 ---
 
 ## Installation
