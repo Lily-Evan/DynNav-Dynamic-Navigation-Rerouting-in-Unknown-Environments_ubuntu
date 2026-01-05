@@ -41,7 +41,7 @@ python eval_astar_learned.py
 
 ---
 
-## 📚 Documentation & Research Notes
+##  Documentation & Research Notes
 
 This repository includes extensive research documentation for readers interested in
 specific subsystems, experimental results, and theoretical contributions:
