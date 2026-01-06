@@ -296,9 +296,6 @@ Example research directions:
 
 ## 📄 License
 
-Specify your license here, e.g.:
-
-
 - BSD-3-Clause
 
 
