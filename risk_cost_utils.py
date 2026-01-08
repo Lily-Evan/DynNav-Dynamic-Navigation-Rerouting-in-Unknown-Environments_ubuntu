@@ -86,6 +86,29 @@ def human_and_ethical_edge_cost(
         in_private_zone=in_private_zone,
         in_vulnerable_area=in_vulnerable_area,
     )
+def path_risk_sum(path, risk_grid):
+    """
+    Sum of risk along a path.
+    Assumes risk_grid is indexed as risk_grid[y, x].
+    Path is an iterable of (x, y) tuples.
+    """
+    r = 0.0
+    for (x, y) in path:
+        r += float(risk_grid[int(y), int(x)])
+    return r
+
+
+def path_length_l2(path):
+    """Euclidean length of polyline path."""
+    if path is None or len(path) < 2:
+        return 0.0
+    import math
+    L = 0.0
+    for i in range(1, len(path)):
+        x0, y0 = path[i-1]
+        x1, y1 = path[i]
+        L += math.hypot(x1 - x0, y1 - y0)
+    return float(L)
 
     return {
         "total_cost": total_cost,

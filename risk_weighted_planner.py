@@ -1,11 +1,11 @@
 # risk_weighted_planner.py
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 import heapq
 import numpy as np
 
-Coord = Tuple[int, int]
+Coord = Tuple[int, int]  # INTERNAL: (y, x)
 
 
 @dataclass
@@ -43,13 +43,14 @@ def astar_risk_weighted(
     """
     Risk-weighted A* baseline.
 
-    Objective (additive):
-      J = sum(step_cost) + lam * sum(I(s))   if risk_agg="sum"
-      J = sum(step_cost) + lam * max(I(s))   if risk_agg="max" (implemented as additive upper bound proxy)
+    Objective:
+      J = geo + lam * risk
+    where geo = step_cost * (#steps)
 
-    Note:
-    - This is a SOFT approach: it never forbids I>tau cells.
-    - Works on a 4-connected grid.
+    risk_agg="sum": risk = sum(I_grid[y,x] along path)
+    risk_agg="max": risk = max(I_grid[y,x] along path)   (proxy ordering)
+
+    INTERNAL coordinate convention: (y, x).
     """
     if lam < 0:
         raise ValueError("lam must be >= 0")
@@ -66,22 +67,18 @@ def astar_risk_weighted(
     if not free_mask[gy, gx]:
         return RiskAStarResult(False, [], float("inf"), 0, "goal not free")
 
-    # Priority queue: (f, tie, node)
     open_heap: List[Tuple[float, int, Coord]] = []
     tie = 0
 
     g_cost: Dict[Coord, float] = {start: 0.0}
     came_from: Dict[Coord, Coord] = {}
 
-    # For "max" risk aggregation, we track running max risk separately
     max_risk: Dict[Coord, float] = {start: float(I_grid[sy, sx])}
 
     def heuristic(n: Coord) -> float:
-        # admissible geometric heuristic only for step cost part (risk part ignored in h)
         return step_cost * manhattan(n, goal)
 
-    start_f = g_cost[start] + heuristic(start)
-    heapq.heappush(open_heap, (start_f, tie, start))
+    heapq.heappush(open_heap, (g_cost[start] + heuristic(start), tie, start))
     tie += 1
 
     expansions = 0
@@ -96,13 +93,9 @@ def astar_risk_weighted(
         expansions += 1
 
         if cur == goal:
-            # reconstruct and compute reported costs
             path = reconstruct_path(came_from, start, goal)
-
-            # geometric cost:
             geo = step_cost * (len(path) - 1)
 
-            # risk cost:
             if risk_agg == "sum":
                 risk_val = float(np.sum([I_grid[y, x] for (y, x) in path]))
             elif risk_agg == "max":
@@ -123,37 +116,101 @@ def astar_risk_weighted(
                 continue
 
             nxt = (ny, nx)
-
-            # base step cost
             new_geo = g_cost[cur] + step_cost
 
             if risk_agg == "sum":
-                # add risk as additive per-state penalty (including entering next cell)
                 new_g = new_geo + lam * float(I_grid[ny, nx])
                 if nxt not in g_cost or new_g < g_cost[nxt]:
                     g_cost[nxt] = new_g
                     came_from[nxt] = cur
-                    f = new_g + heuristic(nxt)
-                    heapq.heappush(open_heap, (f, tie, nxt))
+                    heapq.heappush(open_heap, (new_g + heuristic(nxt), tie, nxt))
                     tie += 1
 
             elif risk_agg == "max":
-                # track max risk so far; use a conservative additive proxy for priority:
-                # g_proxy = geo + lam * max_risk_so_far
                 new_max = max(max_risk[cur], float(I_grid[ny, nx]))
                 new_g_proxy = new_geo + lam * new_max
-
                 old = g_cost.get(nxt, float("inf"))
-                # store proxy in g_cost for ordering
                 if new_g_proxy < old:
                     g_cost[nxt] = new_g_proxy
                     max_risk[nxt] = new_max
                     came_from[nxt] = cur
-                    f = new_g_proxy + heuristic(nxt)
-                    heapq.heappush(open_heap, (f, tie, nxt))
+                    heapq.heappush(open_heap, (new_g_proxy + heuristic(nxt), tie, nxt))
                     tie += 1
 
             else:
                 return RiskAStarResult(False, [], float("inf"), expansions, "invalid risk_agg")
 
     return RiskAStarResult(False, [], float("inf"), expansions, "no path (soft risk)")
+
+
+# =========================
+# Risk-budget wrapper (NEW)
+# =========================
+from risk_cost_utils import path_risk_sum, path_length_l2
+
+
+def _adapter_plan_with_lambda(start, goal, lam, risk_grid):
+    """
+    Public convention for wrapper/demo: start/goal are (x, y).
+    Internally, astar_risk_weighted expects (y, x). We convert both ways.
+    Returns path as (x, y).
+    """
+    I_grid = risk_grid
+    free_mask = np.ones_like(I_grid, dtype=bool)
+
+    sx, sy = start
+    gx, gy = goal
+    start_yx = (int(sy), int(sx))
+    goal_yx = (int(gy), int(gx))
+
+    res = astar_risk_weighted(
+        free_mask=free_mask,
+        I_grid=I_grid,
+        start=start_yx,
+        goal=goal_yx,
+        lam=float(lam),
+        step_cost=1.0,
+        risk_agg="sum",
+    )
+
+    if res is None or not res.success:
+        return None
+
+    return [(int(x), int(y)) for (y, x) in res.path]
+
+
+def plan_under_risk_budget(
+    start,
+    goal,
+    risk_grid,
+    B,
+    plan_with_lambda_fn=_adapter_plan_with_lambda,
+    lambda0=1.0,
+    eta=0.5,
+    max_dual_iters=15,
+):
+    """
+    Dual-ascent style loop to satisfy risk(path) <= B.
+
+    start/goal are (x, y) for convenience.
+    """
+    lam = float(lambda0)
+    best = None
+
+    for k in range(int(max_dual_iters)):
+        path = plan_with_lambda_fn(start, goal, lam, risk_grid)
+
+        if path is None or len(path) == 0:
+            lam = max(0.0, lam + 1.0)
+            continue
+
+        R = path_risk_sum(path, risk_grid)
+        L = path_length_l2(path)
+
+        if R <= float(B):
+            best = {"path": path, "L": L, "R": R, "B": float(B), "lambda": lam, "iters": k + 1}
+            lam = max(0.0, lam * 0.7)
+        else:
+            lam = max(0.0, lam + float(eta) * (R - float(B)))
+
+    return best
