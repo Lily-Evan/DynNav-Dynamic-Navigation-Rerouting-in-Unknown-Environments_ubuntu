@@ -28,3 +28,8 @@ neural_uncertainty/*.save
 #joint_*.png
 #connectivity_*.png
 #heatmap_*.png
+
+# Editor swap files
+*.swp
+*.swo
+*~
