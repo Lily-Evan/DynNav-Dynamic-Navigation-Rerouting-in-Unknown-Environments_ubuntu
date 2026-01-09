@@ -308,4 +308,12 @@ Not validated for safety-critical deployment.
 
 ## Author
 **Panagiota Grosdouli**  
+Electrical & Computer Engineering  
+Democritus University of Thrace (D.U.Th.)
+-----
+## Project Status
+Actively developed research codebase.  
+Modules may evolve as part of ongoing experimentation and publications.
+
+**Panagiota Grosdouli**  
 Electrical & Computer Engineering, D.U.Th.
